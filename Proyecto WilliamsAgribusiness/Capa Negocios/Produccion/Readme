@@ -1,0 +1,162 @@
+# Módulo Producción – Capa de Negocios
+
+`produccion_service.py` es la **única** parte que habla con SQL Server (consultas, procedimientos almacenados y validaciones).
+La interfaz **no debe** conectarse a la base de datos por su cuenta: solo importa este archivo y llama a sus funciones.
+
+## 1. Antes de empezar
+
+1. Ejecutar en SQL Server (SSMS) el script `Capa Datos/Produccion/Produccion.sql`.
+2. Tener instalado **ODBC Driver 17 o 18 for SQL Server** (el código elige el más nuevo solo).
+3. Instalar las librerías:
+   ```
+   pip install streamlit pyodbc pandas plotly
+   ```
+4. La conexión usa **autenticación de Windows** (`Trusted_Connection=yes`).
+
+### Servidor y base de datos
+
+Por defecto el archivo apunta a:
+
+| Dato | Valor por defecto |
+|---|---|
+| Servidor | `localhost\SQLEXPRESS` |
+| Base de datos | `William’s Agribusiness` (el apóstrofo es curvo ’, igual que en SSMS) |
+
+Si en tu computadora se llaman diferente, **no edites el archivo**: define estas variables de entorno en PowerShell antes de ejecutar Streamlit:
+
+```
+$env:PROD_DB_SERVIDOR = "TU_SERVIDOR\TU_INSTANCIA"
+$env:PROD_DB_NOMBRE   = "NombreExactoDeTuBD"
+```
+
+## 2. Cómo importarlo desde la interfaz
+
+Estructura del repositorio:
+
+```
+Proyecto WilliamsAgribusiness/
+├── Capa Datos/Produccion/Produccion.sql
+├── Capa Negocios/Produccion/produccion_service.py
+└── Interfaz/Produccion/<tu_archivo>.py
+```
+
+"Capa Negocios" tiene un espacio, así que no se puede importar como paquete. Pon esto al inicio de tu archivo de la interfaz (antes de usar el servicio):
+
+```python
+import sys
+from pathlib import Path
+
+_AQUI = Path(__file__).resolve().parent                      # Interfaz/Produccion
+_NEGOCIOS = _AQUI.parents[1] / "Capa Negocios" / "Produccion"
+if str(_NEGOCIOS) not in sys.path:
+    sys.path.insert(0, str(_NEGOCIOS))
+
+import produccion_service as svc
+```
+
+### Cómo ejecutar
+
+Desde la carpeta **`Proyecto WilliamsAgribusiness`** (la que contiene `Capa Datos`, `Capa Negocios` e `Interfaz`):
+
+```
+streamlit run Interfaz/Produccion/<tu_archivo>.py
+```
+
+## 3. Funciones disponibles
+
+### Leer datos (devuelven un DataFrame de pandas, con columnas aunque no haya filas)
+
+| Función | Qué devuelve |
+|---|---|
+| `svc.cargar_vista("vw_Prod_KPI_Finca")` | Vista indicada. Solo acepta las 4 vistas: `vw_Prod_Trazabilidad`, `vw_Prod_CultivosActivos`, `vw_Prod_KPI_Finca`, `vw_Prod_KPI_Cultivo` |
+| `svc.consultar_fincas()` | Todas las fincas (`SELECT *`) |
+| `svc.consultar_lotes()` | Todos los lotes, con el nombre de su finca |
+| `svc.consultar_codigos_cultivo()` | Códigos de cultivo existentes |
+| `svc.siguiente_codigo("FIN", fincas["CodigoFinca"])` | Código sugerido: `FIN-001`, `LOT-005`, `CUL-003`... |
+
+Columnas usadas por la interfaz actual:
+
+- **vw_Prod_KPI_Finca:** `NombreFinca`, `KgCosechados`, `CostoCosechas`, `CultivosActivos`
+- **vw_Prod_KPI_Cultivo:** `NombreCultivo`, `KgEstimados`, `KgReales`, `CostoPorKg`, `RendimientoKgHa`
+- **vw_Prod_Trazabilidad:** `CodigoCultivo`, `NombreCultivo`, `EstadoCultivo`, `NombreFinca`, `Provincia`, `CodigoLote`, `AreaHectareas`, `CumplimientoPct`, `CostoProduccion`, `ProduccionRealKg`, `AlertaRendimiento` (vale `"Bajo rendimiento"` cuando hay alerta)
+- **Finca:** `EstadoFinca` (`"Activa"`). **Lote:** `EstadoLote` (`"Disponible"` o `"Ocupado"`).
+
+### Validar ANTES de guardar
+
+Cada función devuelve una **lista de mensajes de error**. Si la lista está vacía, los datos son correctos.
+
+| Función | Parámetros |
+|---|---|
+| `svc.validar_finca(...)` | `codigo, nombre, provincia, canton, distrito, direccion, area, responsable` |
+| `svc.validar_lote(...)` | `codigo, codigo_finca, nombre, area` |
+| `svc.validar_siembra(...)` | `codigo, codigo_lote, nombre, variedad, f_siembra, f_estimada, cantidad, prod_estimada, costo` |
+| `svc.validar_cosecha(...)` | `codigo_cultivo, kg_reales, fecha` |
+| `svc.validar_actualizacion(...)` | `codigo_cultivo, nueva_prod, nuevo_costo, cambiar_fecha, nueva_fecha` |
+
+### Ejecutar un procedimiento almacenado
+
+```python
+ok, resultado = svc.ejecutar_sp(sql, params)
+```
+
+- `ok = True`  → se hizo `commit`. `resultado` es un DataFrame o `None`.
+- `ok = False` → se hizo `rollback`. `resultado` es el **mensaje de error ya limpio** (por ejemplo, el que lanzan los triggers). Muéstralo tal cual al usuario.
+
+La conexión se abre y se cierra dentro de la función; no hay que cerrar nada.
+
+## 4. Los 6 procedimientos (nombres y parámetros exactos)
+
+Siempre con parámetros `?` (nunca armar el texto del SQL con datos del usuario).
+
+| Procedimiento | SQL y orden de los parámetros |
+|---|---|
+| `sp_RegistrarFinca` | `EXEC dbo.sp_RegistrarFinca @CodigoFinca=?, @NombreFinca=?, @Provincia=?, @Canton=?, @Distrito=?, @Direccion=?, @AreaTotalHectareas=?, @TipoProduccion=?, @Responsable=?` |
+| `sp_RegistrarLote` | `EXEC dbo.sp_RegistrarLote @CodigoLote=?, @CodigoFinca=?, @NombreLote=?, @AreaHectareas=?, @TipoAmbiente=?, @TipoSuelo=?, @SistemaRiego=?` |
+| `sp_RegistrarSiembra` | `EXEC dbo.sp_RegistrarSiembra @CodigoCultivo=?, @CodigoLote=?, @NombreCultivo=?, @FechaSiembra=?, @FechaCosechaEstimada=?, @CantidadSembrada=?, @ProduccionEstimadaKg=?, @CostoProduccion=?, @Variedad=?, @MetodoCultivo=?` |
+| `sp_ActualizarCultivo` | `EXEC dbo.sp_ActualizarCultivo @CodigoCultivo=?, @ProduccionEstimadaKg=?, @FechaCosechaEstimada=?, @CostoProduccion=?` (usar `None` en lo que no se quiera cambiar) |
+| `sp_RegistrarCosecha` | `EXEC dbo.sp_RegistrarCosecha @CodigoCultivo=?, @ProduccionRealKg=?, @FechaCosechaReal=?` |
+| `sp_MarcarCultivoPerdido` | `EXEC dbo.sp_MarcarCultivoPerdido @CodigoCultivo=?` |
+
+Valores permitidos en las listas desplegables:
+
+- **Tipo de producción (finca):** `Campo abierto`, `Invernadero`, `Mixta`
+- **Tipo de ambiente (lote):** `Campo abierto`, `Invernadero`
+- **Tipo de suelo:** `Franco`, `Franco arenoso`, `Franco limoso`, `Arcilloso`
+- **Sistema de riego:** `Goteo`, `Aspersion`, `Secano`
+- **Método de cultivo:** `Convencional`, `Invernadero`, `Organico`
+
+## 5. Ejemplo completo (registrar una cosecha)
+
+```python
+from datetime import date
+
+errores = svc.validar_cosecha("CUL-001", 480.0, date.today())
+if errores:
+    st.error("\n".join(errores))
+else:
+    ok, resultado = svc.ejecutar_sp(
+        "EXEC dbo.sp_RegistrarCosecha @CodigoCultivo=?, @ProduccionRealKg=?, @FechaCosechaReal=?",
+        ("CUL-001", 480.0, date.today()),
+    )
+    if ok:
+        st.success("Cosecha registrada.")
+        st.rerun()          # recarga la pantalla para que los indicadores se actualicen
+    else:
+        st.error(resultado)  # mensaje de SQL Server ya limpio
+```
+
+## 6. Recomendaciones para la interfaz
+
+- **Cargar los datos en cada ejecución** de la página (no usar `st.cache`), así los indicadores se actualizan después de registrar algo.
+- **Tablas vacías:** revisar `df.empty` antes de graficar o de llenar un selectbox.
+- **Evitar doble registro:** limpiar el formulario después de un registro exitoso y no repetir la misma operación si el usuario hace doble clic.
+- **No cambiar** nombres de procedimientos, vistas ni parámetros.
+
+## 7. Errores comunes
+
+| Mensaje | Causa |
+|---|---|
+| `No module named 'produccion_service'` | La ruta de `sys.path` está mal (ver sección 2) |
+| Error rojo de conexión | SQL Server apagado, nombre de servidor/BD distinto (usar las variables de entorno) o falta el ODBC Driver |
+| `Este lote ya tiene un cultivo activo.` | Regla de la base de datos: un lote solo puede tener un cultivo activo |
+| `Ese código ya existe. Usa uno diferente.` | Código duplicado de finca, lote o cultivo |
