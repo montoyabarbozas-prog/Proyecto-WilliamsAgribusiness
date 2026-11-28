@@ -1,4 +1,5 @@
 use BDWilliamsAgribusiness
+go
 
 -- TRIGGER 1: actualiza solo la fecha de modificación del cliente
 CREATE TRIGGER trg_Cliente_FechaModificacion
