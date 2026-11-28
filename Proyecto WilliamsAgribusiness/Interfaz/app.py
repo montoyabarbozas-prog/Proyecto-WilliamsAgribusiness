@@ -1,7 +1,7 @@
 import customtkinter as ctk
-from interfaz.config import MODULES
-from interfaz.vistas.dashboard import DashboardView
-from interfaz.vistas.modulo import ModuleView
+from Interfaz.config import MODULES
+from Interfaz.vistas.dashboard import DashboardView
+from Interfaz.vistas.modulo import ModuleView
 
 
 class WilliamsApp(ctk.CTk):
