@@ -6,6 +6,8 @@ CREATE OR ALTER PROCEDURE sp_CambiarEstadoCliente
     @NuevoEstado VARCHAR(15)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
     DECLARE @IdCliente INT;
     DECLARE @EstadoActual VARCHAR(15);
 
@@ -14,20 +16,14 @@ BEGIN
     WHERE CodigoCliente = @CodigoCliente;
 
     IF @IdCliente IS NULL
-    BEGIN
-        PRINT 'Error: el cliente indicado no existe.';
-        RETURN;
-    END
+        THROW 50301, 'El cliente indicado no existe.', 1;
 
     IF @NuevoEstado NOT IN ('Prospecto', 'Piloto', 'Activo', 'Inactivo')
-    BEGIN
-        PRINT 'Error: el estado debe ser Prospecto, Piloto, Activo o Inactivo.';
-        RETURN;
-    END
+        THROW 50302, 'El estado debe ser Prospecto, Piloto, Activo o Inactivo.', 1;
 
     IF @EstadoActual = @NuevoEstado
     BEGIN
-        PRINT 'El cliente ya tiene ese estado, no se hizo ningún cambio.';
+        SELECT 'El cliente ya tiene ese estado, no se hizo ningún cambio.' AS Mensaje;
         RETURN;
     END
 
@@ -35,10 +31,7 @@ BEGIN
        AND EXISTS (SELECT 1 FROM Contrato
                    WHERE IdCliente = @IdCliente
                      AND EstadoContrato = 'Vigente')
-    BEGIN
-        PRINT 'Error: no se puede inactivar un cliente con contratos vigentes.';
-        RETURN;
-    END
+        THROW 50303, 'No se puede inactivar un cliente con contratos vigentes.', 1;
 
     BEGIN TRY
         UPDATE Cliente
@@ -46,10 +39,10 @@ BEGIN
             FechaModificacion = GETDATE()
         WHERE IdCliente = @IdCliente;
 
-        PRINT 'Estado actualizado: ' + @EstadoActual + ' -> ' + @NuevoEstado;
+        SELECT 'Estado actualizado: ' + @EstadoActual + ' -> ' + @NuevoEstado AS Mensaje;
     END TRY
     BEGIN CATCH
-        PRINT 'Error al cambiar el estado: ' + ERROR_MESSAGE();
+        THROW;
     END CATCH
 END
 GO

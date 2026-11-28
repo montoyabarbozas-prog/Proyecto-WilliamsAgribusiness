@@ -21,43 +21,30 @@ CREATE OR ALTER PROCEDURE sp_RegistrarClienteConContacto
     @CorreoContacto VARCHAR(100)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
     DECLARE @IdSegmento INT;
     DECLARE @IdCliente INT;
 
     IF EXISTS (SELECT 1 FROM Cliente
                WHERE NumeroIdentificacion = @NumeroIdentificacion)
-    BEGIN
-        PRINT 'Error: ya existe un cliente con esa identificación.';
-        RETURN;
-    END
+        THROW 50201, 'Ya existe un cliente con esa identificación.', 1;
 
     IF EXISTS (SELECT 1 FROM Cliente WHERE CodigoCliente = @CodigoCliente)
-    BEGIN
-        PRINT 'Error: ya existe un cliente con ese código.';
-        RETURN;
-    END
+        THROW 50202, 'Ya existe un cliente con ese código.', 1;
 
     SELECT @IdSegmento = IdSegmento
     FROM SegmentoCliente
     WHERE NombreSegmento = @NombreSegmento;
 
     IF @IdSegmento IS NULL
-    BEGIN
-        PRINT 'Error: el segmento indicado no existe.';
-        RETURN;
-    END
+        THROW 50203, 'El segmento indicado no existe.', 1;
 
     IF @LimiteCredito < 0 OR @DiasCredito < 0
-    BEGIN
-        PRINT 'Error: el crédito y los días de crédito no pueden ser negativos.';
-        RETURN;
-    END
+        THROW 50204, 'El crédito y los días de crédito no pueden ser negativos.', 1;
 
     IF @CorreoFacturacion NOT LIKE '%_@_%._%'
-    BEGIN
-        PRINT 'Error: el correo de facturación no es válido.';
-        RETURN;
-    END
+        THROW 50205, 'El correo de facturación no es válido.', 1;
 
     BEGIN TRY
         BEGIN TRANSACTION;
@@ -83,12 +70,13 @@ BEGIN
          @CorreoContacto, 1, 1, CAST(GETDATE() AS DATE));
 
         COMMIT TRANSACTION;
-        PRINT 'Cliente registrado correctamente.';
+
+        SELECT 'Cliente registrado correctamente.' AS Mensaje;
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0
             ROLLBACK TRANSACTION;
-        PRINT 'Error al registrar el cliente: ' + ERROR_MESSAGE();
+        THROW;
     END CATCH
 END
 GO
